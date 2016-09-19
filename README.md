@@ -26,16 +26,20 @@ Truncate, create, extend or shift file content as specified size
         
         filename: file to be processed, will be created if not exist.
 
-        size: target size (except for special value: -1).
-              size value -1 means up to end of file, excl. skipsize if any
-              (eg. if originalsize=1000GB and skip=100GB, -1 means 900GB).
+        size: target size (intended size).
+              If positive, means final size, regardless of skipsize value.
+              
+              If negative, means counted from the end of file, and
+              excluded (minus) skipsize. Example, given targetsize= -10g
+              if original size is 100GB, targetsize calculated to: 90GB.
               This special value should be followed by skip value.
+              If also given skipsize= 3gb, the targetsize become: 87GB.
 
         skip (optional): skip/discard bytes from beginning (default = 0).
-              skip value must be positive, negative value counted as 0.
+                skip value must be positive
 
         size and skip may be suffixed by K/M/G/T(B), case insensitive.
-        Trailing B (bytes), if any, will be simply ignored.
+        
 
         Important:
         skipsize might slowed down operation significantly, especially
@@ -55,11 +59,11 @@ Truncate, create, extend or shift file content as specified size
 
         truncate.exe foo 2TB
 
-   - Delete 19KB from beginning of "bar" (shifted up, slow)
+   - Crop 19KB from beginning and end of "bar"
 
-        truncate.exe bar -1 19k
+        truncate.exe bar -19K 19k
 
-   - Crop 1TB of "baz" content from pos: 777th byte (dog slow)
+   - Shift 1TB of "baz" content from pos: 777-th byte
 
         truncate.exe baz 1tB 777
 
