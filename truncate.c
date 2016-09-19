@@ -17,9 +17,9 @@ int showhelp(_TCHAR* arg)
 	}
 
 	printf(" \n");
-	printf(" Version: 0.2.0\n");
+	printf(" Version: 0.2.1\n");
 	printf(" Created: 2005.05.10\n");
-	printf(" Revised: 2009.07.11\n\n");
+	printf(" Revised: 2009.09.04\n\n");
 	printf(" Compiled with Borland's BCC version 5.5.1 (Freeware)\n\n");
 	printf(" SYNOPSYS:\n");
 	printf(" \tTruncate, create, extend or shift file content as specified size.\n\n");
@@ -28,18 +28,21 @@ int showhelp(_TCHAR* arg)
 	printf(" ARGUMENTS:\n");
 	printf(" \tThis program expects at least 2 arguments.\n\n");
 	printf(" \tfilename: file to be processed, will be created if not exist.\n\n");
-	printf(" \tsize: target size (except for special value: -1).\n");
-	printf(" \t      size value -1 means up to end of file, excl. skipsize if any\n");
-	printf(" \t      (eg. if originalsize=1000GB and skip=100GB, -1 means 900GB).\n");
-	printf(" \t      This special value should be followed by skip value.\n\n");
+	printf(" \tsize: target size (intended size).\n\n");
+	printf(" \t      If positive, means final size, regardless of skipsize value.\n\n");
+	printf(" \t      If negative, means counted from the end of file, and\n");
+	printf(" \t      excluded (minus) skipsize. Example, given targetsize= -10g\n");
+	printf(" \t      if original size is 100GB, targetsize calculated to: 90GB.\n");
+	printf(" \t      If also given skipsize= 3gb, the targetsize become: 87GB\n\n");
 	printf(" \tskip (optional): skip/discard bytes from beginning (default = 0).\n");
-	printf(" \t      skip value must be positive, negative value counted as 0.\n\n");
-	printf(" \tsize and skip may be suffixed by K/M/G/T(B), case insensitive.\n");
-	printf(" \tTrailing B (bytes), if any, will be simply ignored.\n\n");
+	printf(" \t                 skipsize value must be positive.\n\n");
+	printf(" \tsize and skip may be suffixed by K/M/G/T(B), case insensitive.\n\n");
+	//printf(" \tTrailing B (bytes), if any, will be simply ignored.\n\n");
 	printf(" \tImportant:\n");
 	printf(" \tskipsize might slowed down operation significantly, especially\n");
 	printf(" \tif misaligned with pagesize (by given odd skip value).\n");
 	//printf(" \t* Do not use it if not really necessary *\n\n");
+	//printf(" \n");
 	printf(" \n");
 	printf(" \tIn all cases, depends heavily on drive speed and memory cache,\n");
 	printf(" \tthough this program is smart enough to avoid unnecessary move.\n");
@@ -54,9 +57,9 @@ int showhelp(_TCHAR* arg)
 	printf(" \t%s zero 0\n\n", s);
 	printf("   - Create, truncate or extend \"foo\" size to 2 terrabytes. fast!\n\n");
 	printf(" \t%s foo 2TB\n\n", s);
-	printf("   - Delete 19KB from beginning of \"bar\" (shifted up, slow)\n\n");
-	printf(" \t%s bar -1 19k\n\n", s);
-	printf("   - Crop 1TB of \"baz\" content from pos: 777th byte (dog slow)\n\n");
+	printf("   - Crop 19KB from beginning and end of \"bar\"\n\n");
+	printf(" \t%s bar -19K 19k\n\n", s);
+	printf("   - Shift 1TB of \"baz\" content from pos: 777-th byte\n\n");
 	printf(" \t%s baz 1tB 777\n\n", s);
 	printf(" \tIf the orginal size less than 1TB it will be extended (0-fill)\n\n");
 	printf(" ====================================================\n");
@@ -127,6 +130,19 @@ int setEOF(HANDLE file, __int64 size)
 	return 1;
 }
 
+// char confirm(char * msg) { printf(msg); return gtch(); }
+char confirm_zerosize(const __int64 targetsize) {
+	char ch;
+	printf("This will truncate the file ");
+	if (targetsize)	printf("and zero fill to %I64d bytes. ", targetsize);
+	else printf("to zero size. ");
+	printf("Are you sure?\n");
+	printf("Press [y] to confirm, any other key will cancel. ");
+	ch = (char)getche();
+	printf("\n\n\n");
+	return ch;
+}
+
 int _tmain(int c, _TCHAR* args[])
 {
 	if (c < 3 || c > 4) return showhelp(args[0]);
@@ -136,8 +152,8 @@ int _tmain(int c, _TCHAR* args[])
 		LARGE_INTEGER qsize;
 		__int64 getsize = argnvalue(c, args, 2);
 		__int64 skipsize = argnvalue(c, args, 3);
-		__int64 oldsize;
-		__int64 targetsize = getsize;
+		__int64 filesize;
+		__int64 targetsize;// = getsize;
 
         int ms;
 		clock_t tic, tac, toe;
@@ -145,8 +161,8 @@ int _tmain(int c, _TCHAR* args[])
 		tic = clock();
 
 		if (skipsize < 0) return showerr("Skip size must not be negative");
-		if (getsize < -1) return showerr("Invalid target size");
-		if (getsize == -1 && skipsize == 0) return showerr("Nothing to do");
+		//if (getsize < -1) return showerr("Invalid target size");
+		//if (getsize == -1 && skipsize == 0) return showerr("Nothing to do");
 
 		file = CreateFile(args[1], GENERIC_WRITE|GENERIC_READ,
 				FILE_SHARE_READ, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
@@ -154,25 +170,44 @@ int _tmain(int c, _TCHAR* args[])
 			return showerr("Open failed, maybe read-only environment");
 
 		GetFileSizeEx(file, &qsize);
-		oldsize = qsize.QuadPart;
+		filesize = qsize.QuadPart;
 
-		//if (skipsize && skipsize >= oldsize) skipsize = oldsize;
-		if (getsize == -1) targetsize = oldsize;
+		//if (skipsize && skipsize >= filesize) skipsize = filesize;
+		//if (getsize < 0) targetsize = filesize + getsize;
+
+		targetsize = getsize >= 0 ? getsize : filesize + getsize;
+		if (targetsize < 0) targetsize = 0;
+
+			//printf("filesize: %I64d, getsize: %I64d -> ", filesize, getsize);
+			//printf("targetsize: %I64d, skipsize: %I64d\n\n", targetsize, skipsize);
+
+		if (!(filesize | targetsize)) {
+			CloseHandle(file);
+			printf("Done processing zero size file: \"%s\"\n", args[1]);
+			return 1;// closerr(file, "Both filesize and targetsize are zero");
+		}
+
 		if (skipsize == 0)
 		{
-			if (targetsize == oldsize)
-				return closerr(file, "Target filesize doesn't change. Nothing to do");
+			if (targetsize == filesize)
+				return closerr(file, "Target filesize doesn't change");
 			else if (!setEOF(file, targetsize))
 				return closerr(file, "An error occured on 1st stage");
 			CloseHandle(file);
 		}
-		else if (skipsize >= oldsize) {
+		else // here, skipsize is > 0
+		if (skipsize >= targetsize || skipsize >= filesize) {
+			// negative/back-count targetsize larger than filesize itself
+			// skipsize larger than filesize itself
+			if (filesize)
+				if ((confirm_zerosize(targetsize) | 0x20) != (char)'y')
+					return closerr(file, "Operation cancelled");
+			tic = clock();
 			setEOF(file, 0);
-			setEOF(file, targetsize);
+			if (targetsize) setEOF(file, targetsize);
 			CloseHandle(file);
 		}
 		else {
-
 			HANDLE source, dest;
 			LARGE_INTEGER qz;
 			_TCHAR tmpfile[256];
@@ -194,15 +229,20 @@ int _tmain(int c, _TCHAR* args[])
 			source = CreateFile(args[1], GENERIC_READ,
 				FILE_SHARE_WRITE, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
 			if (source == INVALID_HANDLE_VALUE)
-				return showerr("Open read failed, is file missing?");
+				return closerr(dest, "Open read failed, is file missing?");
 
 			qz.QuadPart = skipsize;
 			SetFilePointerEx(source, qz, NULL, 0);
 
 			Buf = malloc(BLOCK);
-			if (!Buf) return showerr("Not enough memory");
+			if (!Buf) {
+				CloseHandle(dest); CloseHandle(source);
+				return showerr("Not enough memory");
+			}
 
-			printf("Shifting content (buffer size: %dMB). Please wait...\n", (BLOCK >> 20));
+			if (getsize < 0) targetsize -= skipsize;
+			printf("Shifting data: %I64d by %I64d bytes (buffer: %dMB).", targetsize, skipsize, (BLOCK >> 20));
+			printf(" Please wait..\n");
 
 			ReadFile(source, Buf, BLOCK, &got, NULL);
 
